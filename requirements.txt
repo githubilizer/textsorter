@@ -1,0 +1,5 @@
+customtkinter==5.2.2
+ollama==0.5.1
+requests==2.32.3
+darkdetect==0.8.0
+packaging==25.0 
