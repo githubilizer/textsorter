@@ -514,7 +514,11 @@ class TextSorterApp(ctk.CTk):
             segment_pattern = r'((?:^|\n)\s*"Title:[^"]+")(.+?)(?=(?:^|\n)\s*"Title:|$)'
             
             # Find positions of each segment to preserve exact text
-            matches = list(re.finditer(segment_pattern, content, re.DOTALL | re.MULTILINE))
+            # Use DOTALL so the pattern spans newlines but avoid MULTILINE
+            # to ensure $ only matches end-of-string. MULTILINE caused
+            # segments to stop after the first line when a blank line was
+            # present, dropping metadata such as timestamps and tags.
+            matches = list(re.finditer(segment_pattern, content, re.DOTALL))
             
             # Extract segments with their exact original text
             self.segments = []
