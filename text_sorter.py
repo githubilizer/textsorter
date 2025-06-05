@@ -597,58 +597,39 @@ class TextSorterApp(ctk.CTk):
             progress_text = f"Processing segment {self.current_segment_index + 1} of {len(self.segments)}"
             self.progress_label.configure(text=progress_text)
             
-            # If auto-process is enabled, use AI to decide
-            if self.auto_process.get():
-                # Get AI analysis
-                self.add_to_log(f"Analyzing with {model}...", "info")
+            # Always use AI to analyze for multiple stories in a segment
+            self.add_to_log(f"Analyzing with {model} for multiple stories...", "info")
+            
+            # Call analyze_segment_with_ollama to check for multiple stories
+            _, reasoning, raw_response, contains_multiple_stories, number_of_stories, _, split_points = self.analyze_segment_with_ollama(
+                title, 
+                content, 
+                model, 
+                self.same_topic_var.get()
+            )
+            
+            # Add debug log entry with raw response
+            self.add_to_log(f"Raw AI response: {raw_response}", "info")
+            
+            # Check if segment contains multiple stories
+            if contains_multiple_stories and number_of_stories > 1 and split_points:
+                self.add_to_log(f"AI found {number_of_stories} distinct stories within segment #{self.current_segment_index + 1}!", "highlight")
                 
-                ai_result, reasoning, raw_response, contains_multiple_stories, number_of_stories, sub_topics, split_points = self.analyze_segment_with_ollama(
-                    title, 
-                    content, 
-                    model, 
-                    self.same_topic_var.get()
-                )
+                # Log split points if available
+                if split_points:
+                    splits_str = ", ".join([str(p) for p in split_points])
+                    self.add_to_log(f"Splitting after line/paragraph: {splits_str}", "info")
                 
-                # Add debug log entry with raw response
-                self.add_to_log(f"Raw AI response: {raw_response}", "info")
-                
-                # Check if segment contains multiple stories
-                if contains_multiple_stories and number_of_stories > 1:
-                    self.add_to_log(f"AI found {number_of_stories} distinct stories within segment #{self.current_segment_index + 1}!", "highlight")
-                    
-                    # Log topic titles if available
-                    if sub_topics:
-                        topic_str = ", ".join(sub_topics)
-                        self.add_to_log(f"Story topics: {topic_str}", "info")
-                    
-                    # Log split points if available
-                    if split_points:
-                        splits_str = ", ".join([str(p) for p in split_points])
-                        self.add_to_log(f"Split after line/paragraph: {splits_str}", "info")
-                    
-                    # Split the segment
-                    if self._split_segment(title, content, original_text, split_points, sub_topics):
-                        return
-                    # If splitting failed, fall through to normal processing
-                
-                # Process based on AI result for comparison with next segment
-                try:
-                    # Check if AI suggests different topics
-                    if ai_result:
-                        self.add_to_log(f"AI decision: Different topics", "highlight")
-                        self.add_to_log(f"Reasoning: {reasoning}", "info")
-                        # Use after with a delay to prevent recursion
-                        self.after(100, self.mark_different_topic)
-                    else:
-                        self.add_to_log(f"AI decision: Same topic", "highlight")
-                        self.add_to_log(f"Reasoning: {reasoning}", "info")
-                        # Use after with a delay to prevent recursion
-                        self.after(100, self.mark_same_topic)
-                except Exception as e:
-                    # Default to same topic on error
-                    self.add_to_log(f"Error parsing AI result: {e}. Defaulting to same topic.", "error")
-                    # Use after with a delay to prevent recursion
-                    self.after(100, self.mark_same_topic)
+                # Split the segment using the original title for all sub-segments
+                if self._split_segment(title, content, original_text, split_points, []):
+                    return
+                # If splitting failed, fall through to normal processing
+            else:
+                # No multiple stories found, just add the segment as is
+                self.add_to_log(f"No multiple stories found in segment. Keeping as is.", "info")
+            
+            # Process segment as a whole (no splitting needed)
+            self._process_segment_as_whole(title, content, original_text)
             
         except Exception as e:
             messagebox.showerror("Error", f"Processing failed: {str(e)}")
@@ -656,6 +637,53 @@ class TextSorterApp(ctk.CTk):
             self.process_button.configure(state="normal")
             self.add_to_log(f"Error during processing: {str(e)}", "error")
             self.processing_active = False
+    
+    def _process_segment_as_whole(self, title, content, original_text):
+        """Process a segment as a whole (no splitting)"""
+        # Get metadata for current segment
+        current_metadata = self.segment_metadata[self.current_segment_index]
+        
+        # Process the segment to ensure it has all its metadata
+        # Split into lines and filter out empty lines
+        segment_lines = [line for line in original_text.splitlines() if line.strip()]
+        
+        # Make sure all metadata is included
+        for meta_line in current_metadata:
+            if meta_line not in segment_lines:
+                segment_lines.append(meta_line)
+        
+        # Reconstruct the segment with all metadata
+        processed_segment = "\n".join(segment_lines)
+        
+        # Add as a separate segment with all metadata
+        self.processed_segments.append(processed_segment)
+        
+        # Increment counters
+        if self.current_segment_index == 0:
+            # First segment
+            self.current_topic_count = 1
+            self.add_to_log(f"Added first segment #{self.current_segment_index + 1}: {title.strip()}", "success")
+        else:
+            # New segment
+            self.different_topics_count += 1
+            self.current_topic_count += 1
+            self.add_to_log(f"Added segment #{self.current_segment_index + 1}: {title.strip()}", "success")
+        
+        self.update_topic_counters()
+        
+        # Move to next segment
+        self.current_segment_index += 1
+        
+        # Get the selected model
+        model = self.selected_model.get()
+        
+        # Process the next segment
+        if self.current_segment_index < len(self.segments):
+            # Use after with a delay to prevent recursion
+            self.after(100, lambda: self._process_next_segment(model))
+        else:
+            # All segments processed
+            self._save_processed_file()
     
     def _update_current_segment(self, title, content):
         """This method is no longer needed as we removed the current segment display"""
@@ -666,82 +694,8 @@ class TextSorterApp(ctk.CTk):
         pass
     
     def mark_same_topic(self):
-        # Add the current segment to processed segments
-        if self.current_segment_index < len(self.segments):
-            title, content, original_text = self.segments[self.current_segment_index]
-            
-            # Get metadata for current segment
-            current_metadata = self.segment_metadata[self.current_segment_index]
-            
-            # Add to processed segments
-            if not self.processed_segments:
-                # First segment - just use the original text as is
-                self.processed_segments.append(original_text)
-                self.current_topic_count = 1  # Start with the first topic
-                self.add_to_log(f"Added first segment #{self.current_segment_index + 1}: {title.strip()}", "success")
-            else:
-                # For merging, we need to combine with the previous segment
-                # Ensure there's a newline between segments if needed
-                if not self.processed_segments[-1].endswith('\n'):
-                    self.processed_segments[-1] += '\n'
-                
-                # Remove the title part from the original text (just for merging)
-                content_only = re.sub(
-                    pattern=r'^\s*"Title:[^"]+"\s*', 
-                    repl='', 
-                    string=original_text, 
-                    count=1, 
-                    flags=re.MULTILINE
-                )
-                
-                # Add content without the title
-                content_lines = content_only.strip().splitlines()
-                
-                # Add the non-metadata content lines
-                content_to_add = []
-                for line in content_lines:
-                    # Skip lines that are already in metadata
-                    if not (line.startswith('--') or 
-                            line.startswith('http') or 
-                            line.startswith('Timestamp:') or 
-                            line.startswith('Map view:') or 
-                            line.startswith('Source:') or 
-                            line.startswith('cc-') or 
-                            line.startswith('@') or
-                            re.match(r'^[A-Za-z]{2}-', line)):
-                        content_to_add.append(line)
-                
-                # Add the content lines followed by metadata
-                if content_to_add:
-                    self.processed_segments[-1] += '\n' + '\n'.join(content_to_add)
-                
-                # Add metadata if not already present in the last segment
-                for meta_line in current_metadata:
-                    if meta_line not in self.processed_segments[-1]:
-                        self.processed_segments[-1] += '\n' + meta_line
-                
-                self.same_topics_count += 1  # Count when segments are merged
-                self.add_to_log(f"Merged segment #{self.current_segment_index + 1} with metadata: {title.strip()}", "success")
-            
-            # Update counters
-            self.update_topic_counters()
-            
-            # Move to next segment
-            self.current_segment_index += 1
-            
-            # Get the selected model
-            model = self.selected_model.get()
-            
-            # Process the next segment
-            if self.current_segment_index < len(self.segments):
-                # Use after with a delay to prevent recursion
-                self.after(100, lambda: self._process_next_segment(model))
-            else:
-                # All segments processed
-                self._save_processed_file()
-    
-    def mark_different_topic(self):
-        # Add the current segment as a separate segment
+        # Modified to ALWAYS keep segments separate - removing merging functionality
+        # This now functions the same as mark_different_topic
         if self.current_segment_index < len(self.segments):
             title, content, original_text = self.segments[self.current_segment_index]
             
@@ -760,7 +714,7 @@ class TextSorterApp(ctk.CTk):
             # Reconstruct the segment with all metadata
             processed_segment = "\n".join(segment_lines)
             
-            # Add to processed segments as a separate segment with all metadata
+            # Add as a separate segment with all metadata
             self.processed_segments.append(processed_segment)
             
             # Increment counters
@@ -769,7 +723,58 @@ class TextSorterApp(ctk.CTk):
                 self.current_topic_count = 1
                 self.add_to_log(f"Added first segment #{self.current_segment_index + 1}: {title.strip()}", "success")
             else:
-                # New different topic found
+                # Treated as different topic (no merging)
+                self.different_topics_count += 1
+                self.current_topic_count += 1
+                self.add_to_log(f"Added segment #{self.current_segment_index + 1} as separate segment: {title.strip()}", "success")
+            
+            self.update_topic_counters()
+            
+            # Move to next segment
+            self.current_segment_index += 1
+            
+            # Get the selected model
+            model = self.selected_model.get()
+            
+            # Process the next segment
+            if self.current_segment_index < len(self.segments):
+                # Use after with a delay to prevent recursion
+                self.after(100, lambda: self._process_next_segment(model))
+            else:
+                # All segments processed
+                self._save_processed_file()
+    
+    def mark_different_topic(self):
+        # Modified to ALWAYS keep segments separate - removing merging functionality
+        # This now functions the same as mark_same_topic
+        if self.current_segment_index < len(self.segments):
+            title, content, original_text = self.segments[self.current_segment_index]
+            
+            # Get metadata for current segment
+            current_metadata = self.segment_metadata[self.current_segment_index]
+            
+            # Process the segment to ensure it has all its metadata
+            # Split into lines and filter out empty lines
+            segment_lines = [line for line in original_text.splitlines() if line.strip()]
+            
+            # Make sure all metadata is included
+            for meta_line in current_metadata:
+                if meta_line not in segment_lines:
+                    segment_lines.append(meta_line)
+            
+            # Reconstruct the segment with all metadata
+            processed_segment = "\n".join(segment_lines)
+            
+            # Add as a separate segment with all metadata
+            self.processed_segments.append(processed_segment)
+            
+            # Increment counters
+            if self.current_segment_index == 0:
+                # First segment is always a topic
+                self.current_topic_count = 1
+                self.add_to_log(f"Added first segment #{self.current_segment_index + 1}: {title.strip()}", "success")
+            else:
+                # Treated as different topic (no merging)
                 self.different_topics_count += 1
                 self.current_topic_count += 1
                 self.add_to_log(f"Added segment #{self.current_segment_index + 1} as separate segment: {title.strip()}", "success")
@@ -805,14 +810,16 @@ class TextSorterApp(ctk.CTk):
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             
-            # Use the base filename without the timestamp for the output
+            # Use the original timestamp format for the output filename
             input_basename = os.path.basename(self.input_file_path)
             file_name, file_ext = os.path.splitext(input_basename)
             
-            # Create the output path without timestamp
+            # Add timestamp to the output filename as in the original code
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             self.output_file_path = os.path.join(
                 os.path.dirname(self.input_file_path),
-                f"{file_name}_shouldbe{file_ext}"
+                f"{file_name}_sorted_{timestamp}{file_ext}"
             )
             
             # Combine all processed segments 
@@ -953,29 +960,20 @@ class TextSorterApp(ctk.CTk):
     
     def analyze_segment_with_ollama(self, title, content, model, keep_same_topic):
         try:
-            # Define the prompt for Ollama
+            # Define the prompt for Ollama to specifically look for multiple stories in a SINGLE segment
             prompt = f"""
-            Analyze these two consecutive text segments:
+            Analyze this text segment to determine if it contains multiple distinct news stories or topics:
             
-            SEGMENT 1 (Current):
+            SEGMENT:
             {title}
             {content}
             
-            SEGMENT 2 (Next):
-            {self.segments[self.current_segment_index + 1][0] if self.current_segment_index + 1 < len(self.segments) else "None"}
-            {self.segments[self.current_segment_index + 1][1] if self.current_segment_index + 1 < len(self.segments) else "No more segments"}
+            Your task is to determine if this SINGLE segment contains multiple distinct news stories or topics.
             
-            First, analyze if SEGMENT 1 itself contains multiple distinct news stories or topics.
-            If it does, identify the following:
-            1. How many distinct stories or topics are in SEGMENT 1 (give a number)
-            2. For each sub-topic, provide a SINGLE WORD that best describes the content (e.g., "Politics", "Military", "Economy")
-            3. Identify specific line/paragraph numbers where the content should be split
-            
-            Then, determine if SEGMENT 1 and SEGMENT 2 are about DIFFERENT topics (not the same topic).
-            
-            {"Look for SIGNIFICANTLY different topics, not just different aspects of the same story or news item. If the content is discussing the same main topic or event, consider them the same topic." if keep_same_topic else ""}
-            
-            IMPORTANT: DO NOT consider them different topics if they're discussing different aspects of the same news story or event.
+            If it does contain multiple distinct stories:
+            1. How many distinct stories or topics are in the segment? (give a number)
+            2. For each sub-story, provide a brief description
+            3. Identify specific sentence or paragraph boundaries where the content should be split
             
             IMPORTANT: Ignore all of these tag line types when making decisions - they should NOT cause a segment split:
             - Lines starting with '--' (media references)
@@ -989,14 +987,12 @@ class TextSorterApp(ctk.CTk):
             Format your response exactly like this:
             CONTAINS_MULTIPLE_STORIES: YES/NO
             NUMBER_OF_STORIES: [if YES, provide a number]
-            SUB_TOPICS: [if YES, provide a comma-separated list of SINGLE WORDS]
-            SPLIT_AFTER: [if YES, provide line/paragraph numbers where to split, e.g., "1,3,5"]
-            DIFFERENT: YES/NO
+            SPLIT_AFTER: [if YES, provide line/paragraph numbers where to split, e.g., "2,5,8"]
             REASONING: Your explanation here
             """
             
             # Update status to show which model is being used
-            self.progress_label.configure(text=f"Status: Analyzing with {model}...")
+            self.progress_label.configure(text=f"Status: Analyzing segment for multiple stories with {model}...")
             
             # Call Ollama API with the selected model
             response = ollama.chat(
@@ -1007,14 +1003,12 @@ class TextSorterApp(ctk.CTk):
             response_text = response['message']['content'].strip()
             
             # Default values
-            is_different = False
-            reasoning = "No clear reasoning provided"
             contains_multiple_stories = False
             number_of_stories = 1
-            sub_topics = []
             split_points = []
+            reasoning = "No clear reasoning provided"
             
-            # Try to parse the response with more reliable pattern matching
+            # Parse the response with pattern matching
             # Check if segment contains multiple stories
             multiple_stories_match = re.search(r'CONTAINS_MULTIPLE_STORIES:\s*(YES|NO)', response_text, re.IGNORECASE)
             if multiple_stories_match:
@@ -1028,25 +1022,7 @@ class TextSorterApp(ctk.CTk):
                         number_of_stories = int(number_match.group(1))
                     except ValueError:
                         number_of_stories = 2  # Default to 2 if parsing fails
-                
-                # Get sub-topics if provided
-                topics_match = re.search(r'SUB_TOPICS:\s*(.*?)(?=$|\n)', response_text, re.IGNORECASE | re.DOTALL)
-                if topics_match:
-                    topics_text = topics_match.group(1).strip()
-                    # Parse the topics, handling various formats
-                    if '[' in topics_text and ']' in topics_text:
-                        # Handle array format
-                        topics_text = topics_text.replace('[', '').replace(']', '')
                     
-                    # Split by commas, handling quotes
-                    sub_topics = []
-                    for topic in re.findall(r'(?:"([^"]+)"|([^,]+))', topics_text):
-                        topic_text = topic[0] if topic[0] else topic[1]
-                        if topic_text and topic_text.strip():
-                            # Extract just the first word if multiple words are provided
-                            first_word = topic_text.strip().split()[0]
-                            sub_topics.append(first_word)
-                
                 # Get split points if provided
                 split_match = re.search(r'SPLIT_AFTER:\s*(.*?)(?=$|\n)', response_text, re.IGNORECASE | re.DOTALL)
                 if split_match:
@@ -1063,17 +1039,14 @@ class TextSorterApp(ctk.CTk):
                         except ValueError:
                             continue
             
-            # Check if segments are different topics
-            different_match = re.search(r'DIFFERENT:\s*(YES|NO)', response_text, re.IGNORECASE)
-            if different_match:
-                is_different = different_match.group(1).upper() == "YES"
-            
             # Extract reasoning if available
             reasoning_match = re.search(r'REASONING:\s*(.*?)(?=$|\n\n)', response_text, re.IGNORECASE | re.DOTALL)
             if reasoning_match:
                 reasoning = reasoning_match.group(1).strip()
             
-            return is_different, reasoning, response_text, contains_multiple_stories, number_of_stories, sub_topics, split_points
+            # Return values needed for segment splitting
+            # Note: The "is_different" parameter is now always false, as we're not comparing segments anymore
+            return False, reasoning, response_text, contains_multiple_stories, number_of_stories, [], split_points
                 
         except Exception as e:
             print(f"Ollama analysis error: {str(e)}")
@@ -1144,28 +1117,15 @@ class TextSorterApp(ctk.CTk):
 
     def _split_segment(self, original_title, content, original_text, split_points, sub_topics):
         """Split a segment into multiple segments based on AI analysis"""
-        if not split_points or not sub_topics:
-            self.add_to_log(f"Can't split segment - missing split points or topic titles", "warning")
+        if not split_points:
+            self.add_to_log(f"Can't split segment - missing split points", "warning")
             return False
         
-        # Clean the title format from the original title
+        # Get the original title to use for all sub-segments
         title_format = original_title.strip()
-        # Extract the basic structure (usually "Title:something")
-        title_base = re.search(r'("Title:[^"]+")', title_format)
-        if title_base:
-            title_format = title_base.group(1)
-            # Replace the content part with a placeholder
-            title_format = re.sub(r':.*?"', ':{title}"', title_format)
-        else:
-            # Fallback if we can't parse the title format
-            title_format = '"Title:{title}"'
         
         # Split the content into lines to handle paragraph-based splitting
         lines = content.splitlines()
-        
-        # Ensure we have enough titles for all sub-segments
-        while len(sub_topics) < len(split_points) + 1:
-            sub_topics.append(f"Part{len(sub_topics)+1}")
         
         # Sort split points in ascending order
         split_points.sort()
@@ -1183,7 +1143,7 @@ class TextSorterApp(ctk.CTk):
                 line.startswith('@') or
                 re.match(r'^[A-Za-z]{2}-', line)):
                 metadata_lines.append(line)
-            
+        
         # Create an array to hold the split segments
         segments = []
         
@@ -1202,13 +1162,8 @@ class TextSorterApp(ctk.CTk):
                 # Take lines from start to split point (inclusive)
                 segment_content = "\n".join(lines[start_idx:split_point+1])
             
-            # Create title for this sub-segment - ensure it's a single word
-            topic_word = sub_topics[i].strip().split()[0]  # Take just the first word
-            segment_title = title_format.format(title=topic_word)
-            
-            # Create a new segment with metadata preserved
-            # Start with the title
-            new_segment = segment_title + "\n" + segment_content
+            # Create a new segment with the original title and metadata
+            new_segment = title_format + "\n" + segment_content
             
             # Include all metadata for every segment
             for line in metadata_lines:
@@ -1223,12 +1178,9 @@ class TextSorterApp(ctk.CTk):
         # Add the final segment (from last split point to end)
         if start_idx < len(lines):
             final_content = "\n".join(lines[start_idx:])
-            # Ensure the final title is a single word
-            final_topic = sub_topics[-1].strip().split()[0]  # Take just the first word
-            final_title = title_format.format(title=final_topic)
             
-            # Create a new segment with metadata preserved
-            new_segment = final_title + "\n" + final_content
+            # Create a new segment with the original title and metadata
+            new_segment = title_format + "\n" + final_content
             
             # Include all metadata for this segment too
             for line in metadata_lines:
