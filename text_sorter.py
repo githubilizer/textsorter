@@ -520,9 +520,9 @@ class TextSorterApp(ctk.CTk):
             self.segments = []
             for match in matches:
                 title = match.group(1).strip()
-                segment_content = match.group(2)
-                # Get the exact original text for this segment
-                original_text = match.group(0)
+                segment_content = match.group(2).lstrip("\n")
+                # Get the exact original text for this segment (without leading blank lines)
+                original_text = match.group(0).lstrip("\n")
                 # Store the tuple (title, content, original_text)
                 self.segments.append((title, segment_content, original_text))
             
