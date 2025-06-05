@@ -1120,73 +1120,11 @@ class TextSorterApp(ctk.CTk):
         if not split_points:
             self.add_to_log(f"Can't split segment - missing split points", "warning")
             return False
-        
-        # Get the original title to use for all sub-segments
-        title_format = original_title.strip()
-        
-        # Split the content into lines to handle paragraph-based splitting
-        lines = content.splitlines()
-        
-        # Sort split points in ascending order
-        split_points.sort()
-        
-        # Extract metadata (timestamps, URLs, images, comments) from the original text
-        metadata_lines = []
-        for line in original_text.splitlines():
-            # Check if line is metadata
-            if (line.startswith('--') or 
-                line.startswith('http') or 
-                line.startswith('Timestamp:') or 
-                line.startswith('Map view:') or 
-                line.startswith('Source:') or 
-                line.startswith('cc-') or 
-                line.startswith('@') or
-                re.match(r'^[A-Za-z]{2}-', line)):
-                metadata_lines.append(line)
-        
-        # Create an array to hold the split segments
-        segments = []
-        
-        # Add sub-segments based on split points
-        start_idx = 0
-        for i, split_point in enumerate(split_points):
-            # Adjust split point to ensure it's within bounds
-            split_point = min(split_point, len(lines) - 1)
-            split_point = max(split_point, 0)
-            
-            # Get content for this sub-segment
-            if split_point >= len(lines):
-                # If split point is beyond the end, just take all remaining lines
-                segment_content = "\n".join(lines[start_idx:])
-            else:
-                # Take lines from start to split point (inclusive)
-                segment_content = "\n".join(lines[start_idx:split_point+1])
-            
-            # Create a new segment with the original title and metadata
-            new_segment = title_format + "\n" + segment_content
-            
-            # Include all metadata for every segment
-            for line in metadata_lines:
-                new_segment += "\n" + line
-            
-            # Add to segments list
-            segments.append(new_segment)
-            
-            # Update start index for next segment
-            start_idx = split_point + 1
-        
-        # Add the final segment (from last split point to end)
-        if start_idx < len(lines):
-            final_content = "\n".join(lines[start_idx:])
-            
-            # Create a new segment with the original title and metadata
-            new_segment = title_format + "\n" + final_content
-            
-            # Include all metadata for this segment too
-            for line in metadata_lines:
-                new_segment += "\n" + line
-            
-            segments.append(new_segment)
+
+        # Use helper from split_utils to create sub-segments with metadata
+        from split_utils import split_segment
+
+        segments = split_segment(original_title, content, original_text, split_points)
         
         # Log what we're doing
         self.add_to_log(f"Splitting segment #{self.current_segment_index + 1} into {len(segments)} sub-segments", "highlight")
