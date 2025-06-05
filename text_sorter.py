@@ -942,7 +942,7 @@ class TextSorterApp(ctk.CTk):
             # Show completion message in a try-except block to handle potential UI destruction
             try:
                 messagebox.showinfo(
-                    "Processing Complete", 
+                    "Processing Complete",
                     f"All {len(self.segments)} segments have been processed and saved to:\n{self.output_file_path}"
                 )
             except Exception as dialog_error:
@@ -950,42 +950,42 @@ class TextSorterApp(ctk.CTk):
                 # Print to console instead
                 print(f"Processing Complete: All {len(self.segments)} segments have been processed and saved to: {self.output_file_path}")
 
-                # Add blank lines before showing file contents in the log
-                self.log_text.insert(tk.END, "\n\n")
+            # Add blank lines before showing file contents in the log
+            self.log_text.insert(tk.END, "\n\n")
+            self.log_text.see_end_if_autoscroll()
+
+            try:
+                # Read input file content
+                with open(self.input_file_path, "r", encoding="utf-8") as f:
+                    input_content = f.read()
+
+                # Read output file content
+                with open(self.output_file_path, "r", encoding="utf-8") as f:
+                    output_content = f.read()
+
+                # Determine path to expected output file
+                shouldbe_path = "/home/j/Desktop/joined_shouldbe.vhd"
+                if not os.path.exists(shouldbe_path):
+                    local_path = os.path.join(os.getcwd(), "joined_shouldbe.vhd")
+                    if os.path.exists(local_path):
+                        shouldbe_path = local_path
+
+                shouldbe_content = ""
+                if os.path.exists(shouldbe_path):
+                    with open(shouldbe_path, "r", encoding="utf-8") as f:
+                        shouldbe_content = f.read()
+
+                # Log input and output details
+                self.add_to_log("input file was this:", "highlight")
+                self.log_text.insert(tk.END, input_content + "\n\n")
+                self.add_to_log("output file is this:", "highlight")
+                self.log_text.insert(tk.END, output_content + "\n\n")
+                self.add_to_log("output file should have looked like this:", "highlight")
+                self.log_text.insert(tk.END, shouldbe_content + "\n")
                 self.log_text.see_end_if_autoscroll()
-
-                try:
-                    # Read input file content
-                    with open(self.input_file_path, "r", encoding="utf-8") as f:
-                        input_content = f.read()
-
-                    # Read output file content
-                    with open(self.output_file_path, "r", encoding="utf-8") as f:
-                        output_content = f.read()
-
-                    # Determine path to expected output file
-                    shouldbe_path = "/home/j/Desktop/joined_shouldbe.vhd"
-                    if not os.path.exists(shouldbe_path):
-                        local_path = os.path.join(os.getcwd(), "joined_shouldbe.vhd")
-                        if os.path.exists(local_path):
-                            shouldbe_path = local_path
-
-                    shouldbe_content = ""
-                    if os.path.exists(shouldbe_path):
-                        with open(shouldbe_path, "r", encoding="utf-8") as f:
-                            shouldbe_content = f.read()
-
-                    # Log input and output details
-                    self.add_to_log("input file was this:", "highlight")
-                    self.log_text.insert(tk.END, input_content + "\n\n")
-                    self.add_to_log("output file is this:", "highlight")
-                    self.log_text.insert(tk.END, output_content + "\n\n")
-                    self.add_to_log("output file should have looked like this:", "highlight")
-                    self.log_text.insert(tk.END, shouldbe_content + "\n")
-                    self.log_text.see_end_if_autoscroll()
-                except Exception as log_error:
-                    # If anything fails, just record the error in the log
-                    self.add_to_log(f"Could not display file contents: {log_error}", "error")
+            except Exception as log_error:
+                # If anything fails, just record the error in the log
+                self.add_to_log(f"Could not display file contents: {log_error}", "error")
         except Exception as e:
             print(f"Error saving file: {str(e)}")
             try:
