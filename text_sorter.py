@@ -155,6 +155,8 @@ class TextSorterApp(ctk.CTk):
         self.current_topic_count = 0
         self.different_topics_count = 0
         self.same_topics_count = 0
+        # Counter for assigning IDs to split segments
+        self.split_id_counter = 0
         
         # Create UI elements
         self.create_widgets()
@@ -1194,6 +1196,20 @@ class TextSorterApp(ctk.CTk):
         from split_utils import split_segment
 
         segments = split_segment(original_title, content, original_text, split_points)
+
+        # If we actually split into multiple segments, assign an ID to track them
+        if len(segments) > 1:
+            self.split_id_counter += 1
+            split_id = f"ID{self.split_id_counter:04d}"
+
+            def insert_id(text: str) -> str:
+                lines = text.splitlines()
+                if not lines:
+                    return text
+                lines.insert(1, split_id)
+                return "\n".join(lines)
+
+            segments = [insert_id(seg) for seg in segments]
         
         # Log what we're doing
         self.add_to_log(f"Splitting segment #{self.current_segment_index + 1} into {len(segments)} sub-segments", "highlight")
