@@ -963,25 +963,11 @@ class TextSorterApp(ctk.CTk):
                 with open(self.output_file_path, "r", encoding="utf-8") as f:
                     output_content = f.read()
 
-                # Determine path to expected output file
-                shouldbe_path = "/home/j/Desktop/joined_shouldbe.vhd"
-                if not os.path.exists(shouldbe_path):
-                    local_path = os.path.join(os.getcwd(), "joined_shouldbe.vhd")
-                    if os.path.exists(local_path):
-                        shouldbe_path = local_path
-
-                shouldbe_content = ""
-                if os.path.exists(shouldbe_path):
-                    with open(shouldbe_path, "r", encoding="utf-8") as f:
-                        shouldbe_content = f.read()
-
                 # Log input and output details
                 self.add_to_log("input file was this:", "highlight")
                 self.log_text.insert(tk.END, input_content + "\n\n")
                 self.add_to_log("output file is this:", "highlight")
                 self.log_text.insert(tk.END, output_content + "\n\n")
-                self.add_to_log("output file should have looked like this:", "highlight")
-                self.log_text.insert(tk.END, shouldbe_content + "\n")
                 self.log_text.see_end_if_autoscroll()
             except Exception as log_error:
                 # If anything fails, just record the error in the log
