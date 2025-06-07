@@ -16,7 +16,11 @@ ctk.set_default_color_theme("blue")
 # Default file path
 DEFAULT_FILE_PATH = "/home/j/Desktop/joined.vhd"
 
-# List of available models (alphabetically sorted)
+# Simple JSON file used to remember the last selected model between sessions
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "app_config.json")
+
+# List of available models.  We'll sort them alphabetically when building the
+# dropdown menu so new entries don't need to be manually ordered.
 AVAILABLE_MODELS = [
     "deepcoder:1.5b",
     "deepseek-r1:1.5b",
@@ -45,7 +49,7 @@ AVAILABLE_MODELS = [
     "qwen3:4b",
     "qwen3:8b",
     "qwen3:latest",
-    "smollm2:latest"
+    "smollm2:latest",
 ]
 
 # Tag prefixes that should be ignored when making segment decisions
@@ -136,6 +140,9 @@ class TextSorterApp(ctk.CTk):
         self.processed = False
         self.selected_model = ctk.StringVar(value="qwen3:0.6b")  # Default model
         self.auto_process = ctk.BooleanVar(value=True)  # Auto process by default
+
+        # Load previously saved configuration if available
+        self.load_config()
         
         # Segment processing variables
         self.segments = []
@@ -151,6 +158,9 @@ class TextSorterApp(ctk.CTk):
         
         # Create UI elements
         self.create_widgets()
+
+        # Save settings when the window is closed
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
     def create_widgets(self):
         # Create main frame
@@ -182,9 +192,10 @@ class TextSorterApp(ctk.CTk):
         
         self.model_dropdown = ctk.CTkOptionMenu(
             self.model_frame,
-            values=AVAILABLE_MODELS,
+            values=sorted(AVAILABLE_MODELS),
             variable=self.selected_model,
-            width=200
+            command=self.on_model_select,
+            width=200,
         )
         self.model_dropdown.pack(side=tk.RIGHT, padx=10, pady=5)
         
@@ -1140,6 +1151,36 @@ class TextSorterApp(ctk.CTk):
         self.current_topics_label.configure(text=f"Final Segments: {self.current_topic_count}")
         self.different_topics_label.configure(text=f"Kept Separate: {self.different_topics_count}")
         self.merged_topics_label.configure(text=f"Merged: {self.same_topics_count}")
+
+    def load_config(self):
+        """Load the saved configuration if available."""
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    cfg = json.load(f)
+                last_model = cfg.get("last_model")
+                if last_model in AVAILABLE_MODELS:
+                    self.selected_model.set(last_model)
+            except Exception as e:
+                print(f"Error loading config: {e}")
+
+    def save_config(self):
+        """Save the current configuration to disk."""
+        try:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump({"last_model": self.selected_model.get()}, f)
+        except Exception as e:
+            print(f"Error saving config: {e}")
+
+    def on_model_select(self, value):
+        """Callback when a model is chosen from the dropdown."""
+        self.selected_model.set(value)
+        self.save_config()
+
+    def on_closing(self):
+        """Handle application closing."""
+        self.save_config()
+        self.destroy()
 
     def _split_segment(self, original_title, content, original_text, split_points, sub_topics):
         """Split a segment into multiple segments based on AI analysis"""
