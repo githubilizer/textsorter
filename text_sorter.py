@@ -8,6 +8,7 @@ import customtkinter as ctk
 import ollama
 import subprocess
 import json
+import requests
 
 # Set appearance mode and default color theme
 ctk.set_appearance_mode("dark")
@@ -15,6 +16,9 @@ ctk.set_default_color_theme("blue")
 
 # Default file path
 DEFAULT_FILE_PATH = "/home/j/Desktop/joined.vhd"
+
+# Default location for a reusable OpenAI API key
+OPENAI_KEY_FILE = "/home/j/Desktop/API_KEYS/openai_key_usable.txt"
 
 # Simple JSON file used to remember the last selected model between sessions
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "app_config.json")
@@ -50,6 +54,7 @@ AVAILABLE_MODELS = [
     "qwen3:8b",
     "qwen3:latest",
     "smollm2:latest",
+    "gpt-4.1-nano",
 ]
 
 # Tag prefixes that should be ignored when making segment decisions
@@ -140,6 +145,7 @@ class TextSorterApp(ctk.CTk):
         self.processed = False
         self.selected_model = ctk.StringVar(value="qwen3:0.6b")  # Default model
         self.auto_process = ctk.BooleanVar(value=True)  # Auto process by default
+        self.api_key_var = ctk.StringVar()
 
         # Load previously saved configuration if available
         self.load_config()
@@ -228,6 +234,31 @@ class TextSorterApp(ctk.CTk):
             command=self.toggle_decision_buttons_visibility
         )
         self.auto_process_checkbox.pack(side=tk.RIGHT, padx=10, pady=5)
+
+        # OpenAI API key entry
+        self.api_frame = ctk.CTkFrame(self.main_frame)
+        self.api_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+
+        self.api_label = ctk.CTkLabel(
+            self.api_frame,
+            text="OpenAI API Key:",
+            anchor="w"
+        )
+        self.api_label.pack(side=tk.LEFT, padx=10, pady=5)
+
+        self.api_entry = ctk.CTkEntry(
+            self.api_frame,
+            textvariable=self.api_key_var,
+            show="*"
+        )
+        self.api_entry.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
+
+        self.paste_key_button = ctk.CTkButton(
+            self.api_frame,
+            text="Paste Key",
+            command=self.paste_api_key
+        )
+        self.paste_key_button.pack(side=tk.RIGHT, padx=5, pady=5)
         
         # File selection buttons frame
         self.file_buttons_frame = ctk.CTkFrame(self.main_frame)
@@ -464,6 +495,17 @@ class TextSorterApp(ctk.CTk):
     def update_file_info(self):
         filename = os.path.basename(self.input_file_path)
         self.file_info.configure(text=f"Selected: {filename}")
+
+    def paste_api_key(self):
+        """Paste the OpenAI API key from the default key file"""
+        try:
+            with open(OPENAI_KEY_FILE, "r") as f:
+                key = f.read().strip()
+            self.api_key_var.set(key)
+            self.add_to_log("Pasted OpenAI API key from file", "info")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not read API key: {e}")
+            self.add_to_log(f"Failed to read API key: {e}", "error")
     
     def start_processing(self):
         if not self.input_file_path:
@@ -617,13 +659,21 @@ class TextSorterApp(ctk.CTk):
             # Always use AI to analyze for multiple stories in a segment
             self.add_to_log(f"Analyzing with {model} for multiple stories...", "info")
             
-            # Call analyze_segment_with_ollama to check for multiple stories
-            _, reasoning, raw_response, contains_multiple_stories, number_of_stories, _, split_points = self.analyze_segment_with_ollama(
-                title, 
-                content, 
-                model, 
-                self.same_topic_var.get()
-            )
+            # Use OpenAI when the gpt-4.1-nano model is selected
+            if model == "gpt-4.1-nano":
+                _, reasoning, raw_response, contains_multiple_stories, number_of_stories, _, split_points = self.analyze_segment_with_openai(
+                    title,
+                    content,
+                    model,
+                )
+            else:
+                # Call analyze_segment_with_ollama to check for multiple stories
+                _, reasoning, raw_response, contains_multiple_stories, number_of_stories, _, split_points = self.analyze_segment_with_ollama(
+                    title,
+                    content,
+                    model,
+                    self.same_topic_var.get()
+                )
             
             # Add debug log entry with raw response
             self.add_to_log(f"Raw AI response: {raw_response}", "info")
@@ -1042,48 +1092,10 @@ class TextSorterApp(ctk.CTk):
             )
             
             response_text = response['message']['content'].strip()
-            
-            # Default values
-            contains_multiple_stories = False
-            number_of_stories = 1
-            split_points = []
-            reasoning = "No clear reasoning provided"
-            
-            # Parse the response with pattern matching
-            # Check if segment contains multiple stories
-            multiple_stories_match = re.search(r'CONTAINS_MULTIPLE_STORIES:\s*(YES|NO)', response_text, re.IGNORECASE)
-            if multiple_stories_match:
-                contains_multiple_stories = multiple_stories_match.group(1).upper() == "YES"
-            
-            # Get number of stories if provided
-            if contains_multiple_stories:
-                number_match = re.search(r'NUMBER_OF_STORIES:\s*(\d+)', response_text, re.IGNORECASE)
-                if number_match:
-                    try:
-                        number_of_stories = int(number_match.group(1))
-                    except ValueError:
-                        number_of_stories = 2  # Default to 2 if parsing fails
-                    
-                # Get split points if provided
-                split_match = re.search(r'SPLIT_AFTER:\s*(.*?)(?=$|\n)', response_text, re.IGNORECASE | re.DOTALL)
-                if split_match:
-                    split_text = split_match.group(1).strip()
-                    # Parse the split points, handling various formats
-                    if '[' in split_text and ']' in split_text:
-                        # Handle array format
-                        split_text = split_text.replace('[', '').replace(']', '')
-                    
-                    # Try to extract numbers
-                    for point in re.findall(r'\d+', split_text):
-                        try:
-                            split_points.append(int(point))
-                        except ValueError:
-                            continue
-            
-            # Extract reasoning if available
-            reasoning_match = re.search(r'REASONING:\s*(.*?)(?=$|\n\n)', response_text, re.IGNORECASE | re.DOTALL)
-            if reasoning_match:
-                reasoning = reasoning_match.group(1).strip()
+
+            contains_multiple_stories, number_of_stories, split_points, reasoning = (
+                self._parse_analysis_response(response_text)
+            )
             
             # Return values needed for segment splitting
             # Note: The "is_different" parameter is now always false, as we're not comparing segments anymore
@@ -1092,6 +1104,104 @@ class TextSorterApp(ctk.CTk):
         except Exception as e:
             print(f"Ollama analysis error: {str(e)}")
             return False, f"Error occurred during analysis: {str(e)}", str(e), False, 1, [], []
+
+    def analyze_segment_with_openai(self, title, content, model):
+        """Analyze a segment using the OpenAI API."""
+        api_key = self.api_key_var.get().strip()
+        if not api_key:
+            self.add_to_log("OpenAI API key is missing", "error")
+            return False, "Missing API key", "", False, 1, [], []
+
+        prompt = f"""
+        Analyze this text segment to determine if it contains multiple distinct news stories or topics:
+
+        SEGMENT:
+        {title}
+        {content}
+
+        Your task is to determine if this SINGLE segment contains multiple distinct news stories or topics.
+
+        If it does contain multiple distinct stories:
+        1. How many distinct stories or topics are in the segment? (give a number)
+        2. For each sub-story, provide a brief description
+        3. Identify specific sentence or paragraph boundaries where the content should be split
+
+        IMPORTANT: Ignore all of these tag line types when making decisions - they should NOT cause a segment split:
+        - Lines starting with '--' (media references)
+        - URLs starting with 'http' or 'https'
+        - Lines starting with 'Timestamp:'
+        - Lines starting with 'Map view:'
+        - Lines starting with 'Source:'
+        - Lines starting with '@' (mentions)
+        - Comment tags starting with two letters and a dash (e.g., "cc-", "jj-", "mm-", "CC-", "JJ-", "MM-")
+
+        Format your response exactly like this:
+        CONTAINS_MULTIPLE_STORIES: YES/NO
+        NUMBER_OF_STORIES: [if YES, provide a number]
+        SPLIT_AFTER: [if YES, provide line/paragraph numbers where to split, e.g., "2,5,8"]
+        REASONING: Your explanation here
+        """
+
+        self.progress_label.configure(text=f"Status: Analyzing segment for multiple stories with {model}...")
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+        }
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            response_text = data["choices"][0]["message"]["content"].strip()
+
+            contains_multiple_stories, number_of_stories, split_points, reasoning = (
+                self._parse_analysis_response(response_text)
+            )
+            return False, reasoning, response_text, contains_multiple_stories, number_of_stories, [], split_points
+        except Exception as e:
+            print(f"OpenAI analysis error: {e}")
+            return False, f"Error occurred during analysis: {str(e)}", str(e), False, 1, [], []
+
+    def _parse_analysis_response(self, response_text):
+        """Parse analysis output from either Ollama or OpenAI."""
+        contains_multiple_stories = False
+        number_of_stories = 1
+        split_points = []
+        reasoning = "No clear reasoning provided"
+
+        multiple_stories_match = re.search(r"CONTAINS_MULTIPLE_STORIES:\s*(YES|NO)", response_text, re.IGNORECASE)
+        if multiple_stories_match:
+            contains_multiple_stories = multiple_stories_match.group(1).upper() == "YES"
+
+        if contains_multiple_stories:
+            number_match = re.search(r"NUMBER_OF_STORIES:\s*(\d+)", response_text, re.IGNORECASE)
+            if number_match:
+                try:
+                    number_of_stories = int(number_match.group(1))
+                except ValueError:
+                    number_of_stories = 2
+
+            split_match = re.search(r"SPLIT_AFTER:\s*(.*?)(?=$|\n)", response_text, re.IGNORECASE | re.DOTALL)
+            if split_match:
+                split_text = split_match.group(1).strip()
+                if "[" in split_text and "]" in split_text:
+                    split_text = split_text.replace("[", "").replace("]", "")
+                for point in re.findall(r"\d+", split_text):
+                    try:
+                        split_points.append(int(point))
+                    except ValueError:
+                        continue
+
+        reasoning_match = re.search(r"REASONING:\s*(.*?)(?=$|\n\n)", response_text, re.IGNORECASE | re.DOTALL)
+        if reasoning_match:
+            reasoning = reasoning_match.group(1).strip()
+
+        return contains_multiple_stories, number_of_stories, split_points, reasoning
     
     def open_result_file(self):
         if not self.output_file_path or not os.path.exists(self.output_file_path):

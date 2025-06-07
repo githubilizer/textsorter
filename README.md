@@ -7,7 +7,7 @@ A dark mode Python application that helps you process text files containing segm
 - Dark mode UI for comfortable viewing
 - Simple file selection interface for .txt and .vhd files
 - Direct loading of default file with a single click
-- Model selection from multiple Ollama models
+- Model selection from multiple Ollama models or OpenAI's gpt-4.1-nano
 - Interactive segment-by-segment processing with live progress display
 - Visual decision-making for determining if segments are related
 - Auto-processing option with AI-assisted decisions
@@ -21,6 +21,7 @@ A dark mode Python application that helps you process text files containing segm
 
 - Python 3.6+
 - Ollama installed with at least one of the supported models
+- OpenAI API key if using gpt-4.1-nano
 - Required Python packages (install with pip):
   - customtkinter
   - ollama
@@ -62,18 +63,20 @@ A dark mode Python application that helps you process text files containing segm
 
 2. Select a model from the dropdown menu (default is qwen3:0.6b)
 
-3. Configure processing options:
+3. If you choose **gpt-4.1-nano**, paste your OpenAI API key using the "Paste Key" button or type it manually
+
+4. Configure processing options:
    - **Keep same topic content**: When checked, the app will suggest keeping content discussing the same topic or news story together
    - **Preserve tagged groups**: When checked, the app will keep all related tagged content together
    - **Auto-process**: When checked, the app will automatically process all segments using AI without requiring manual confirmation
 
-4. Either:
+5. Either:
    - Click the "Select File" button to browse for a .txt or .vhd file, OR
    - Click the "Load Default File" button to directly load `/home/j/Desktop/joined_sorted.vhd`
 
-5. Click the "Start Processing" button to begin segment analysis.
+6. Click the "Start Processing" button to begin segment analysis.
 
-6. For each segment:
+7. For each segment:
    - Review the current segment in the "Current Segment" tab
    - Preview the next segment in the "Next Segment" tab
    - Decide if they are about the same topic or different topics:
@@ -81,7 +84,7 @@ A dark mode Python application that helps you process text files containing segm
      - Click "Different Topic (Separate)" to keep them as separate segments
    - The progress indicator will show which segment is currently being processed
 
-7. Once all segments are processed, click the "Open Result" button to view the processed file.
+8. Once all segments are processed, click the "Open Result" button to view the processed file.
 
 ## Interactive Processing
 
@@ -106,6 +109,7 @@ The application supports various models, including:
 - llama models
 - phi models
 - gemma models
+- OpenAI gpt-4.1-nano
 - and more
 
 If you have additional models installed in Ollama, you may need to update the model list in the code.
@@ -144,4 +148,5 @@ The application recognizes and highlights these special content tags (these line
 
 ## Note
 
-This application requires an active Ollama server running locally with at least one of the supported models available. 
+This application requires an active Ollama server running locally with at least one of the supported models available.
+Using **gpt-4.1-nano** requires an internet connection and a valid OpenAI API key.
