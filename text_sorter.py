@@ -839,36 +839,38 @@ class TextSorterApp(ctk.CTk):
             
             # Combine all processed segments 
             final_content = ""
-            
+
             for i, segment in enumerate(self.processed_segments):
-                # If not the first segment, ensure there's proper spacing between segments
-                if i > 0:
-                    # Always add two newlines between segments for consistency
-                    if final_content.endswith('\n\n'):
-                        pass  # Already has correct spacing
-                    elif final_content.endswith('\n'):
-                        final_content += '\n'
-                    else:
-                        final_content += '\n\n'
-                
-                # Clean up any empty lines at the beginning of the segment
+                # Clean up leading whitespace
                 cleaned_segment = segment.lstrip()
                 if not cleaned_segment:
                     continue  # Skip completely empty segments
-                
-                # Make sure segment has all the metadata it needs
+
+                # Ensure each segment contains its metadata
                 if i < len(self.segment_metadata):
                     segment_lines = cleaned_segment.splitlines()
                     for meta_line in self.segment_metadata[i]:
                         if meta_line not in segment_lines:
-                            cleaned_segment += '\n' + meta_line
-                
-                # Add the segment (which now includes all metadata)
-                final_content += cleaned_segment
+                            cleaned_segment += "\n" + meta_line
+
+                # Append the segment followed by six blank lines
+                final_content += cleaned_segment.rstrip() + "\n" * 6
             
+            # Prepend header with model and timestamp
+            header_model = self.selected_model.get()
+            timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            header = f"{header_model}\n{timestamp_str}\n" + "\n" * 4
+            final_content = header + final_content
+
             # Write to output file
             with open(self.output_file_path, 'w', encoding='utf-8') as f:
                 f.write(final_content)
+
+            # Automatically open the result with gnome-text-editor
+            try:
+                subprocess.Popen(['gnome-text-editor', self.output_file_path])
+            except Exception as open_err:
+                self.add_to_log(f"Could not open editor: {open_err}", "error")
             
             self.processed = True
             
@@ -1099,7 +1101,7 @@ class TextSorterApp(ctk.CTk):
             if os.name == 'nt':  # Windows
                 os.startfile(self.output_file_path)
             elif os.name == 'posix':  # Linux/Mac
-                subprocess.run(['xdg-open', self.output_file_path])
+                subprocess.Popen(['gnome-text-editor', self.output_file_path])
         except Exception as e:
             messagebox.showerror("Error", f"Could not open file: {str(e)}")
     
