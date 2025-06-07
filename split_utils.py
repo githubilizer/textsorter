@@ -33,7 +33,8 @@ def split_segment(title: str, content: str, original_text: str, split_points):
     original_text : str
         Complete original text for metadata extraction.
     split_points : Iterable[int]
-        Line indexes after which to split.
+        1-indexed positions indicating after which sentence the content should
+        be split. The function converts them to zero-based indexes internally.
 
     Returns
     -------
@@ -57,7 +58,9 @@ def split_segment(title: str, content: str, original_text: str, split_points):
     # Split into sentences for more precise splits
     sentences = re.split(r"(?<=[.!?])\s+", content_str)
 
-    split_points = sorted({int(p) for p in split_points})
+    # Treat provided split points as 1-indexed positions.  Convert them to
+    # zero-based indexes while ensuring they stay within valid bounds.
+    split_points = sorted({max(0, int(p) - 1) for p in split_points})
     segments = []
     start = 0
     for sp in split_points:
